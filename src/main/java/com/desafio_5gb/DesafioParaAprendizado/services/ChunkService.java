@@ -1,6 +1,8 @@
 package com.desafio_5gb.DesafioParaAprendizado.services;
 
 import com.desafio_5gb.DesafioParaAprendizado.models.Upload;
+import com.desafio_5gb.DesafioParaAprendizado.models.UploadPart;
+import com.desafio_5gb.DesafioParaAprendizado.repositories.UploadPartRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,6 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -21,13 +24,7 @@ public class ChunkService {
 
     private final UploadService uploadService;
     private final S3Client s3Client;
-
-    public ChunkService(UploadService uploadService, S3Client s3Client, String bucket, String tempDir) {
-        this.uploadService = uploadService;
-        this.s3Client = s3Client;
-        this.bucket = bucket;
-        this.tempDir = tempDir;
-    }
+    private final UploadPartRepository uploadPartRepository;
 
     @Value("${minio.bucket}")
     private String bucket;
@@ -42,7 +39,9 @@ public class ChunkService {
         Upload upload = uploadService.findById(uploadId);
         Path chunkPath = saveChunkToDisk(uploadId, chunkIndex, file);
 
-        uploadChunkToMinio(upload, chunkIndex, chunkPath);
+        UploadPartResponse response = uploadChunkToMinio(upload, chunkIndex, chunkPath);
+
+        savePartMetadata(uploadId, chunkIndex + 1, response.eTag());
 
         Files.deleteIfExists(chunkPath);
 
@@ -63,12 +62,12 @@ public class ChunkService {
         return chunkPath;
     }
 
-    private void uploadChunkToMinio(Upload upload,
-                                    Integer chunkIndex,
-                                    Path chunkPath) {
+    private UploadPartResponse uploadChunkToMinio(Upload upload,
+                                                  Integer chunkIndex,
+                                                  Path chunkPath) {
         int partNumber = chunkIndex + 1;
 
-        s3Client.uploadPart(
+        return s3Client.uploadPart(
                 UploadPartRequest.builder()
                         .bucket(bucket)
                         .key(upload.getFilename())
@@ -77,6 +76,15 @@ public class ChunkService {
                         .build(),
                 RequestBody.fromFile(chunkPath)
         );
+    }
+
+    private void savePartMetadata(String uploadId, Integer partNumber, String eTag) {
+        UploadPart part = UploadPart.builder()
+                .uploadId(uploadId)
+                .partNumber(partNumber)
+                .eTag(eTag)
+                .build();
+        uploadPartRepository.save(part);
     }
 
 }
