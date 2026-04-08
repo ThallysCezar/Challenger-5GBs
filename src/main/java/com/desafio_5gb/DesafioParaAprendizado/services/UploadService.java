@@ -2,12 +2,14 @@ package com.desafio_5gb.DesafioParaAprendizado.services;
 
 import com.desafio_5gb.DesafioParaAprendizado.dto.InitUploadRequest;
 import com.desafio_5gb.DesafioParaAprendizado.dto.InitUploadResponse;
+import com.desafio_5gb.DesafioParaAprendizado.dto.UploadCompleteMessage;
 import com.desafio_5gb.DesafioParaAprendizado.models.Upload;
 import com.desafio_5gb.DesafioParaAprendizado.models.enums.UploadStatus;
 import com.desafio_5gb.DesafioParaAprendizado.repositories.UploadRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -20,9 +22,16 @@ public class UploadService {
 
     private final UploadRepository uploadRepository;
     private final S3Client s3Client;
+    private final RabbitTemplate rabbitTemplate;
 
     @Value("${minio.bucket}")
     private String bucket;
+
+    @Value("${rabbitmq.exchange}")
+    private String exchange;
+
+    @Value("${rabbitmq.routing-key}")
+    private String routingKey;
 
     public InitUploadResponse initiateUpload(InitUploadRequest request) {
 
@@ -62,11 +71,20 @@ public class UploadService {
 
         if (upload.getReceivedChunks().equals(upload.getTotalChunks())) {
             upload.setStatus(UploadStatus.PROCESSING);
-            log.info("Todos os chunks recebidos para uploadId={}. Pronto pra montar!", uploadId);
-            // Aqui dispararei pro RabbitMQ
+            rabbitTemplate.convertAndSend(
+                    exchange,
+                    routingKey,
+                    new UploadCompleteMessage(uploadId)
+            );
+
+            log.info("Mensagem publicada na fila para uploadId={}", uploadId);
         }
 
         uploadRepository.save(upload);
+    }
+
+    public Upload save(Upload upload) {
+        return uploadRepository.save(upload);
     }
 
 }
