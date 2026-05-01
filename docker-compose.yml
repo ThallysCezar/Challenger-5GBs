@@ -1,0 +1,133 @@
+# ============================================================================
+# docker-compose.yml — Sobe toda a infra do projeto em 1 comando
+#
+# Uso:
+#   docker compose up -d              → sobe tudo em background
+#   docker compose ps                 → mostra o status
+#   docker compose logs -f minio      → acompanha logs de um serviço
+#   docker compose down               → derruba tudo (mantém os dados)
+#   docker compose down -v            → derruba e APAGA volumes (zera tudo)
+# ============================================================================
+
+services:
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL — fonte de verdade durável dos metadados de upload
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine            # alpine = imagem pequena (~80MB)
+    container_name: challenger-postgres
+    environment:
+      POSTGRES_DB: uploaddb               # bate com spring.datasource.url
+      POSTGRES_USER: user                 # bate com spring.datasource.username
+      POSTGRES_PASSWORD: pass             # bate com spring.datasource.password
+    ports:
+      - "5432:5432"                       # expõe pra sua máquina (DBeaver/psql)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data   # persiste dados entre restarts
+    healthcheck:                          # docker espera o pg estar pronto
+      test: ["CMD-SHELL", "pg_isready -U user -d uploaddb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # MinIO — S3 local. Mesma API da AWS S3, roda na sua máquina.
+  # Console web em http://localhost:9001 (login: minioadmin / minioadmin)
+  # API S3      em http://localhost:9000 (é pra cá que o Spring fala)
+  # --------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: challenger-minio
+    command: server /data --console-address ":9001"
+    # ↑ "server /data" → MinIO armazena tudo em /data (mapeado em volume abaixo)
+    # ↑ "--console-address" → porta separada do console web (boa prática)
+    environment:
+      MINIO_ROOT_USER: minioadmin         # bate com minio.access-key
+      MINIO_ROOT_PASSWORD: minioadmin     # bate com minio.secret-key
+    ports:
+      - "9000:9000"                       # API S3
+      - "9001:9001"                       # Console web
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # createbuckets — container "one-shot" que cria o bucket "uploads" no MinIO
+  # e morre. É um truque comum em docker-compose pra inicialização de dados.
+  # Sem isso, você teria que abrir o console e criar o bucket na mão toda vez.
+  # --------------------------------------------------------------------------
+  createbuckets:
+    image: minio/mc:latest                # "mc" = MinIO Client (CLI oficial)
+    container_name: challenger-createbuckets
+    depends_on:
+      minio:
+        condition: service_healthy        # só roda quando o MinIO estiver UP
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing local/uploads;
+      mc anonymous set download local/uploads;
+      echo 'Bucket uploads criado e pronto.';
+      exit 0;
+      "
+    # ↑ Cria um alias "local" apontando pro MinIO, cria o bucket "uploads"
+    #   (--ignore-existing: não falha se já existe), e libera leitura pública.
+
+  # --------------------------------------------------------------------------
+  # RabbitMQ — broker de mensagens, usado pra avisar o worker que um upload
+  # terminou e precisa ser montado (S3 completeMultipartUpload).
+  # Console web em http://localhost:15672 (login: guest / guest)
+  # --------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3-management-alpine   # "management" = inclui o console web
+    container_name: challenger-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest        # bate com spring.rabbitmq.username
+      RABBITMQ_DEFAULT_PASS: guest        # bate com spring.rabbitmq.password
+    ports:
+      - "5672:5672"                       # AMQP (é pra cá que o Spring fala)
+      - "15672:15672"                     # Console web
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # Redis — cache em memória, usado pra idempotência de chunk, lock distribuído,
+  # contador de progresso e (opcional) rate limiting.
+  # Sem senha em dev. Em produção, sempre setar requirepass.
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: challenger-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    # ↑ --appendonly yes: persiste num arquivo append-only (sobrevive a restart).
+    #   Pro nosso caso de idempotência, não é crítico (chaves têm TTL),
+    #   mas é boa prática deixar ligado.
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+# ============================================================================
+# Volumes nomeados — sobrevivem a "docker compose down".
+# São apagados só com "docker compose down -v".
+# ============================================================================
+volumes:
+  postgres_data:
+  minio_data:
+  rabbitmq_data:
+  redis_data:
