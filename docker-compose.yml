@@ -46,8 +46,8 @@ services:
       MINIO_ROOT_USER: minioadmin         # bate com minio.access-key
       MINIO_ROOT_PASSWORD: minioadmin     # bate com minio.secret-key
     ports:
-      - "9000:9000"                       # API S3
-      - "9001:9001"                       # Console web
+      - "9100:9000"                       # API S3
+      - "9101:9001"                       # Console web
     volumes:
       - minio_data:/data
     healthcheck:
