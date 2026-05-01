@@ -6,6 +6,7 @@ import com.desafio_5gb.DesafioParaAprendizado.repositories.UploadPartRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -16,6 +17,7 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +27,7 @@ public class ChunkService {
     private final UploadService uploadService;
     private final S3Client s3Client;
     private final UploadPartRepository uploadPartRepository;
+    private final StringRedisTemplate redis;
 
     @Value("${minio.bucket}")
     private String bucket;
@@ -89,5 +92,12 @@ public class ChunkService {
 
     public void getUploadByIdMissisChunks(Long id){
 
+    }
+
+    public boolean tryClaimChunk(String uploadId, int chunkIndex) {
+        String key = "upload:" + uploadId + ":chunk:" + chunkIndex;
+        // SETNX com TTL: retorna true só se a chave não existia
+        Boolean acquired = redis.opsForValue().setIfAbsent(key, "1", Duration.ofHours(1));
+        return Boolean.TRUE.equals(acquired);
     }
 }
