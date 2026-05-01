@@ -87,4 +87,7 @@ public class ChunkService {
         uploadPartRepository.save(part);
     }
 
+    public void getUploadByIdMissisChunks(Long id){
+
+    }
 }

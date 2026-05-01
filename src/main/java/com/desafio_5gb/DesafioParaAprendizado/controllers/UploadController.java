@@ -23,6 +23,14 @@ public class UploadController {
         this.chunkService = chunkService;
     }
 
+    @GetMapping("/upload/{id}/missing-chunks")
+    public ResponseEntity<InitUploadResponse> init(
+            @PathVariable Long id) {
+
+        chunkService.getUploadByIdMissisChunks(id);
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/init")
     public ResponseEntity<InitUploadResponse> init(
             @RequestBody InitUploadRequest request) {

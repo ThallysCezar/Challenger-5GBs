@@ -1,6 +1,5 @@
 package com.desafio_5gb.DesafioParaAprendizado.models;
 
-import com.desafio_5gb.DesafioParaAprendizado.dto.InitUploadRequest;
 import com.desafio_5gb.DesafioParaAprendizado.models.enums.UploadStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -19,7 +18,7 @@ import java.time.LocalDateTime;
 public class Upload {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.UUID)
     public String id;
 
     private String filename;
