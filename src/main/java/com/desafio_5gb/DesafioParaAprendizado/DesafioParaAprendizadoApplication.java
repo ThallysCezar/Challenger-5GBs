@@ -1,4 +1,4 @@
-package com.desafio_5gb.Desafio.para.aprendizado;
+package com.desafio_5gb.DesafioParaAprendizado;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

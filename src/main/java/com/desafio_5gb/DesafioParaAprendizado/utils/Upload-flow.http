@@ -1,0 +1,70 @@
+### ============================================================
+### Smoke test do fluxo de upload em chunks
+###
+### Uso:
+###   1. Sobe a infra:        docker compose up -d
+###   2. Sobe o app:          ./mvnw spring-boot:run
+###   3. Cria o arquivo de teste (so 1 vez), no terminal da IDE:
+###      [System.IO.File]::WriteAllBytes("chunk.bin", (New-Object byte[] 10MB))
+###   4. Roda este arquivo de cima pra baixo, clicando no "Run" de cada bloco.
+###      O uploadId da primeira chamada e capturado e reusado nas seguintes.
+###
+### IDEs que entendem .http:
+###   - IntelliJ IDEA (HTTP Client embutido em Ultimate, plugin no Community)
+###   - VS Code + extensao "REST Client" (Huachao Mao)
+### ============================================================
+
+### 1) Inicia o upload — cria o multipart no MinIO e a linha no Postgres.
+###    O script handler abaixo guarda o uploadId em uma variavel global
+###    pra reutilizar nos blocos seguintes.
+POST http://localhost:8080/upload/init
+Content-Type: application/json
+
+{
+  "filename": "test-file.bin",
+  "totalChunks": 3
+}
+
+> {%
+    client.global.set("uploadId", response.body.uploadId);
+    client.log("uploadId capturado: " + response.body.uploadId);
+%}
+
+### 2) Envia o chunk 0 (10MB)
+POST http://localhost:8080/upload/chunk/{{uploadId}}/0
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="chunk.bin"
+Content-Type: application/octet-stream
+
+< ./chunk.bin
+--WebAppBoundary--
+
+### 3) Envia o chunk 1
+POST http://localhost:8080/upload/chunk/{{uploadId}}/1
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="chunk.bin"
+Content-Type: application/octet-stream
+
+< ./chunk.bin
+--WebAppBoundary--
+
+### 4) Envia o chunk 2 (ultimo) — apos esse, a UploadService publica
+###    a mensagem no RabbitMQ e o UploadEventConsumer monta o arquivo final.
+POST http://localhost:8080/upload/chunk/{{uploadId}}/2
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="chunk.bin"
+Content-Type: application/octet-stream
+
+< ./chunk.bin
+--WebAppBoundary--
+
+### 5) Consulta status — apos uns 1-2 segundos do bloco 4, deve estar COMPLETED.
+###    Se ainda estiver PROCESSING, executa esse bloco de novo (a montagem e
+###    assincrona via RabbitMQ).
+GET http://localhost:8080/upload/status/{{uploadId}}

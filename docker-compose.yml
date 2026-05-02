@@ -22,7 +22,7 @@ services:
       POSTGRES_USER: user                 # bate com spring.datasource.username
       POSTGRES_PASSWORD: pass             # bate com spring.datasource.password
     ports:
-      - "5432:5432"                       # expõe pra sua máquina (DBeaver/psql)
+      - "5435:5432"                       # expõe pra sua máquina (DBeaver/psql)
     volumes:
       - postgres_data:/var/lib/postgresql/data   # persiste dados entre restarts
     healthcheck:                          # docker espera o pg estar pronto
